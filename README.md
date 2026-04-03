@@ -1,50 +1,156 @@
-# Welcome to your Expo app 👋
+# Boite a outils pour chauffeur d'autocar
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Application mobile Expo / React Native destinee aux chauffeurs d'autocar.
 
-## Get started
+Le projet fournit actuellement un parcours complet de demonstration avec connexion mock, inscription avec choix de forfait, dashboard metier, navigation GPS enrichie, import de feuilles de route PDF et reconstruction d'un emploi du temps exploitable pour le calcul des temps de travail.
 
-1. Install dependencies
+## Fonctionnalites
 
-   ```bash
-   npm install
-   ```
+- Connexion de demonstration sans backend: n'importe quelle adresse email et n'importe quel mot de passe donnent acces au dashboard.
+- Inscription avec selection d'un forfait `free`, `private` ou `expert`.
+- Paiement en mode maquette pour les forfaits payants.
+- Dashboard chauffeur avec acces aux modules principaux.
+- Navigation GPS avec carte, enregistrement de trajet, points de cheminement, import/export `KML` et `GPX`.
+- Recherche d'itineraire poids lourd entre un point de depart et un point d'arrivee.
+- Import PDF de feuille de route et extraction d'un planning journalier.
+- Pipeline hybride pour l'analyse des PDF: parsing local + OCR distant configurable pour les PDF scannes.
 
-2. Start the app
+## Pile technique
 
-   ```bash
-   npx expo start
-   ```
+- Expo 54
+- React Native 0.81
+- Expo Router
+- TypeScript
+- React Native Maps
+- Expo Location
+- Expo Document Picker
+- Expo File System
+- Expo Sharing
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Installation
 
 ```bash
-npm run reset-project
+npm install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Configuration
 
-## Learn more
+Creer un fichier `.env` a la racine du projet a partir de `.env.example`.
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+cp .env.example .env
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Variables disponibles:
 
-## Join the community
+- `EXPO_PUBLIC_OPENROUTESERVICE_API_KEY`: cle API pour le calcul d'itineraire poids lourd.
+- `EXPO_PUBLIC_SCHEDULE_OCR_API_URL`: URL d'un service OCR/IA distant pour les PDF scannes.
+- `EXPO_PUBLIC_OCR_SPACE_API_KEY`: alternative rapide pour prototyper un OCR distant.
 
-Join our community of developers creating universal apps.
+Sans ces variables:
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- la navigation GPS reste testable, mais le calcul poids lourd bascule sur un mode de demonstration;
+- l'import PDF fonctionne sur les PDF texte, mais sera limite sur les PDF scannes.
+
+## Lancer l'application
+
+```bash
+npm start
+```
+
+Commandes utiles:
+
+```bash
+npm run ios
+npm run android
+npm run web
+npm run lint
+```
+
+## Parcours actuellement en place
+
+### Authentification
+
+- L'ecran de connexion est volontairement en mode mock.
+- Toute combinaison email / mot de passe permet d'entrer dans l'application.
+- L'inscription cree un utilisateur de demonstration avec le forfait selectionne.
+
+### Forfaits
+
+- `Free`: `0,00 EUR / mois`
+- `Private`: `2,99 EUR / mois`
+- `Expert`: `8,99 EUR / mois`
+
+Le paiement est actuellement simule dans l'interface. Le branchement a un prestataire de paiement sera ajoute ensuite.
+
+### Navigation GPS
+
+Le module GPS permet de:
+
+- visualiser une carte;
+- enregistrer un trajet en temps reel;
+- ajouter des points de cheminement nommes;
+- importer ou exporter un trajet en `KML` ou `GPX`;
+- calculer un itineraire avec contraintes de vehicule lourd.
+
+Contraintes actuellement configurees:
+
+- longueur: plus de `12 m`
+- poids: plus de `19 t`
+- hauteur maximale: `3,40 m`
+
+## Module Emploi du temps
+
+Le module Emploi du temps permet de:
+
+- importer une feuille de route PDF;
+- extraire les horaires detectables;
+- reconstituer un agenda jour par jour;
+- calculer les temps de service et l'amplitude;
+- afficher le texte source detecte pour controle manuel.
+
+Pour les PDF scannes, un service OCR/IA distant est recommande pour obtenir un resultat fiable.
+
+## Structure utile du projet
+
+```text
+app/
+   (tabs)/index.tsx        Ecran de connexion
+   register.tsx            Inscription et choix du forfait
+   dashboard.tsx           Tableau de bord chauffeur
+   navigation-gps.tsx      Carte, itineraire, import/export GPX/KML
+   emploi-du-temps.tsx     Import PDF et planning journalier
+contexts/
+   AuthContext.tsx         Etat utilisateur mock et forfaits
+utils/
+   route-planner.ts        Calcul d'itineraire poids lourd
+   gpx-kml.ts              Parsing et export GPX/KML
+   schedule-pdf.ts         Extraction et structuration du planning PDF
+   schedule-ocr.ts         Branchement OCR/IA distant
+constants/
+   env.ts                  Centralisation des variables d'environnement
+```
+
+## Etat actuel du projet
+
+Ce projet est un prototype fonctionnel oriente validation produit.
+
+Les points suivants restent a brancher pour passer en version plus complete:
+
+- backend d'authentification reel;
+- persistance des utilisateurs et des forfaits;
+- paiement reel;
+- service OCR/IA de production;
+- regles metier precises sur les temps de travail conducteur.
+
+## Qualite
+
+Le projet inclut une verification ESLint via:
+
+```bash
+npm run lint
+```
+
+## Licence
+
+Usage interne / prototype en cours de construction.
