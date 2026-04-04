@@ -1,11 +1,13 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { useAuth } from '@/contexts/AuthContext';
+import { getPlanDefinition, SUBSCRIPTION_PLANS } from '@/constants/subscription-plans';
+import { SubscriptionPlan, useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
     Alert,
     KeyboardAvoidingView,
     Platform,
+  ScrollView,
     StyleSheet,
     Text,
     TextInput,
@@ -18,7 +20,10 @@ export default function LoginScreen() {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [selectedTestPlan, setSelectedTestPlan] = useState<SubscriptionPlan>('free');
   const { login, isLoading } = useAuth();
+  const canChooseTestPlan = __DEV__;
+  const selectedPlanDefinition = getPlanDefinition(selectedTestPlan);
 
   const handleLogin = async () => {
     if (!identifier || !password) {
@@ -27,7 +32,9 @@ export default function LoginScreen() {
     }
     
     try {
-      const success = await login(identifier, password);
+      const success = await login(identifier, password, {
+        testPlan: selectedTestPlan,
+      });
       
       if (success) {
         router.replace('/dashboard');
@@ -49,15 +56,20 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
         <View style={styles.content}>
           {/* Header avec logo */}
           <View style={styles.header}>
             <View style={styles.logoContainer}>
-              <IconSymbol name="autostart" size={60} color="#2D5016" />
+              <IconSymbol name={"paperplane.fill" as any} size={60} color="#2D5016" />
             </View>
             <Text style={styles.title}>Boîte à Outils</Text>
             <Text style={styles.subtitle}>Chauffeur d&apos;Autocar</Text>
@@ -119,6 +131,42 @@ export default function LoginScreen() {
             <TouchableOpacity style={styles.registerButton} onPress={handleRegister}>
               <Text style={styles.registerButtonText}>S&apos;inscrire</Text>
             </TouchableOpacity>
+
+            {canChooseTestPlan ? (
+              <View style={styles.devPlanCard}>
+                <Text style={styles.devPlanTitle}>Mode test</Text>
+                <Text style={styles.devPlanText}>
+                  En developpement, vous pouvez choisir un forfait mock au login. En production, le choix du forfait passera uniquement par l&apos;inscription.
+                </Text>
+
+                <View style={styles.devPlanOptions}>
+                  {SUBSCRIPTION_PLANS.map((plan) => {
+                    const isSelected = plan.id === selectedTestPlan;
+
+                    return (
+                      <TouchableOpacity
+                        key={plan.id}
+                        style={[
+                          styles.devPlanOption,
+                          isSelected && {
+                            borderColor: plan.accent,
+                            backgroundColor: '#F3FBF4',
+                          },
+                        ]}
+                        onPress={() => setSelectedTestPlan(plan.id)}
+                      >
+                        <Text style={styles.devPlanOptionTitle}>{plan.shortLabel}</Text>
+                        <Text style={[styles.devPlanOptionPrice, { color: plan.accent }]}>{plan.priceLabel}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.devPlanSelectedText}>
+                  Le login de test ouvrira un compte {selectedPlanDefinition.shortLabel.toLowerCase()}.
+                </Text>
+              </View>
+            ) : null}
           </View>
 
           {/* Footer */}
@@ -126,6 +174,7 @@ export default function LoginScreen() {
             <Text style={styles.footerText}>Votre compagnon de route digital</Text>
           </View>
         </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -138,14 +187,19 @@ const styles = StyleSheet.create({
   keyboardView: {
     flex: 1,
   },
+  scrollContent: {
+    flexGrow: 1,
+  },
   content: {
-    flex: 1,
+    flexGrow: 1,
     paddingHorizontal: 24,
     justifyContent: 'center',
+    paddingTop: 24,
+    paddingBottom: 20,
   },
   header: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 28,
   },
   logoContainer: {
     width: 120,
@@ -184,7 +238,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#2D5016',
     textAlign: 'center',
-    marginBottom: 32,
+    marginBottom: 24,
     fontWeight: '600',
   },
   inputContainer: {
@@ -259,16 +313,73 @@ const styles = StyleSheet.create({
     borderColor: '#388E3C',
     paddingVertical: 16,
     backgroundColor: '#F5FBF5',
-    marginBottom: 40,
+    marginBottom: 24,
   },
   registerButtonText: {
     color: '#2D5016',
     fontSize: 17,
     fontWeight: '700',
   },
+  devPlanCard: {
+    marginTop: -6,
+    marginBottom: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#C8E6C9',
+    shadowColor: '#2E7D32',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  devPlanTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#2D5016',
+    marginBottom: 6,
+  },
+  devPlanText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#56705A',
+  },
+  devPlanOptions: {
+    marginTop: 14,
+    gap: 10,
+  },
+  devPlanOption: {
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#D6E6D8',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: '#FAFCFA',
+  },
+  devPlanOptionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1F3423',
+  },
+  devPlanOptionPrice: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  devPlanSelectedText: {
+    marginTop: 12,
+    fontSize: 13,
+    color: '#4A7C59',
+    fontWeight: '600',
+  },
   footer: {
     alignItems: 'center',
-    paddingBottom: 24,
+    paddingTop: 8,
+    paddingBottom: 12,
   },
   footerText: {
     color: '#6FA474',

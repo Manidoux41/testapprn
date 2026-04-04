@@ -1,4 +1,5 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { SUBSCRIPTION_PLANS } from '@/constants/subscription-plans';
 import { SubscriptionPlan, useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
 import React, { useMemo, useState } from 'react';
@@ -15,42 +16,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-type PlanDefinition = {
-  id: SubscriptionPlan;
-  title: string;
-  priceLabel: string;
-  description: string;
-  features: string[];
-  accent: string;
-};
-
-const PLANS: PlanDefinition[] = [
-  {
-    id: 'free',
-    title: 'Forfait Free',
-    priceLabel: '0,00 EUR / mois',
-    description: 'Pour debuter avec les fonctionnalites essentielles.',
-    features: ['Connexion et dashboard', 'Navigation de base', 'Outils coeur de metier a definir'],
-    accent: '#4A7C59',
-  },
-  {
-    id: 'private',
-    title: 'Forfait Private',
-    priceLabel: '2,99 EUR / mois',
-    description: 'Ajoute l import PDF et les fonctions avancees de planning.',
-    features: ['Tout le forfait Free', 'Import des feuilles de route PDF', 'Analyse de planning enrichie'],
-    accent: '#2D8C74',
-  },
-  {
-    id: 'expert',
-    title: 'Forfait Expert',
-    priceLabel: '8,99 EUR / mois',
-    description: 'Debloque tout le potentiel de la boite a outils.',
-    features: ['Toutes les fonctions Private', 'Navigation GPS avancee', 'Acces a toutes les fonctionnalites'],
-    accent: '#1F6B38',
-  },
-];
-
 export default function RegisterScreen() {
   const { register, isLoading } = useAuth();
   const [firstName, setFirstName] = useState('');
@@ -66,7 +31,7 @@ export default function RegisterScreen() {
   const [cvv, setCvv] = useState('');
 
   const selectedPlanDefinition = useMemo(
-    () => PLANS.find(plan => plan.id === selectedPlan) ?? PLANS[0],
+    () => SUBSCRIPTION_PLANS.find(plan => plan.id === selectedPlan) ?? SUBSCRIPTION_PLANS[0],
     [selectedPlan]
   );
 
@@ -191,7 +156,7 @@ export default function RegisterScreen() {
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Choix du forfait</Text>
-            {PLANS.map(plan => {
+            {SUBSCRIPTION_PLANS.map(plan => {
               const isSelected = selectedPlan === plan.id;
 
               return (

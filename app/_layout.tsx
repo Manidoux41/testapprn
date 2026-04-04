@@ -23,6 +23,7 @@ export default function RootLayout() {
             <Stack.Screen name="dashboard" options={{ headerShown: false }} />
             <Stack.Screen name="emploi-du-temps" options={{ headerShown: false }} />
             <Stack.Screen name="register" options={{ headerShown: false }} />
+            <Stack.Screen name="upgrade-plan" options={{ headerShown: false }} />
             <Stack.Screen 
               name="forgot-password" 
               options={{ 

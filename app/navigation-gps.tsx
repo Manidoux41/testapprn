@@ -1,4 +1,5 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { useAuth } from '@/contexts/AuthContext';
 import {
     generateGPX,
     generateKML,
@@ -17,7 +18,7 @@ import { File, Paths } from 'expo-file-system';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Alert,
     FlatList,
@@ -46,8 +47,72 @@ const COLORS = {
   recording: '#D32F2F',
 };
 
+const VEHICLE_CONFIG_PLAN = 'expert';
+
+type VehicleProfile = {
+  vehicleType: string;
+  registration: string;
+  brand: string;
+  lengthMeters: number;
+  heightMeters: number;
+  weightTons: number;
+};
+
+const VEHICLE_PRESETS: VehicleProfile[] = [
+  {
+    vehicleType: 'Autocar',
+    registration: 'AB-456-CD',
+    brand: 'Mercedes Tourismo',
+    lengthMeters: 12.8,
+    heightMeters: 3.4,
+    weightTons: 19,
+  },
+  {
+    vehicleType: 'Ambulance',
+    registration: 'EF-237-GH',
+    brand: 'Renault Master',
+    lengthMeters: 6.2,
+    heightMeters: 2.8,
+    weightTons: 3.5,
+  },
+  {
+    vehicleType: 'Taxi van',
+    registration: 'IJ-908-KL',
+    brand: 'Ford Tourneo',
+    lengthMeters: 5.4,
+    heightMeters: 2.1,
+    weightTons: 2.6,
+  },
+  {
+    vehicleType: 'Porteur livraison',
+    registration: 'MN-654-OP',
+    brand: 'Iveco Eurocargo',
+    lengthMeters: 8.7,
+    heightMeters: 3.15,
+    weightTons: 11.9,
+  },
+];
+
+function buildInitialVehicleProfile(): VehicleProfile {
+  const defaults = getDefaultVehicleConstraints();
+
+  return {
+    vehicleType: 'Autocar',
+    registration: 'AB-456-CD',
+    brand: 'Mercedes Tourismo',
+    lengthMeters: defaults.lengthMeters,
+    heightMeters: defaults.heightMeters,
+    weightTons: defaults.weightTons,
+  };
+}
+
+function formatVehicleValue(value: number) {
+  return Number.isInteger(value) ? value.toString() : value.toFixed(2);
+}
+
 export default function NavigationGPSScreen() {
   const mapRef = useRef<MapView>(null);
+  const { user } = useAuth();
 
   // Position & permissions
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
@@ -70,7 +135,23 @@ export default function NavigationGPSScreen() {
   const [arrival, setArrival] = useState('');
   const [isPlanningRoute, setIsPlanningRoute] = useState(false);
   const [plannedRoute, setPlannedRoute] = useState<HeavyRoutePlan | null>(null);
-  const vehicleConstraints = getDefaultVehicleConstraints();
+  const [vehicleProfile, setVehicleProfile] = useState<VehicleProfile>(buildInitialVehicleProfile);
+  const [showVehicleConfigModal, setShowVehicleConfigModal] = useState(false);
+  const [vehicleTypeInput, setVehicleTypeInput] = useState(vehicleProfile.vehicleType);
+  const [registrationInput, setRegistrationInput] = useState(vehicleProfile.registration);
+  const [brandInput, setBrandInput] = useState(vehicleProfile.brand);
+  const [lengthInput, setLengthInput] = useState(vehicleProfile.lengthMeters.toString());
+  const [heightInput, setHeightInput] = useState(formatVehicleValue(vehicleProfile.heightMeters));
+  const [weightInput, setWeightInput] = useState(formatVehicleValue(vehicleProfile.weightTons));
+  const canConfigureVehicle = user?.plan === VEHICLE_CONFIG_PLAN;
+  const vehicleConstraints = useMemo(
+    () => ({
+      lengthMeters: vehicleProfile.lengthMeters,
+      weightTons: vehicleProfile.weightTons,
+      heightMeters: vehicleProfile.heightMeters,
+    }),
+    [vehicleProfile.heightMeters, vehicleProfile.lengthMeters, vehicleProfile.weightTons]
+  );
 
   // Modals
   const [showWaypointModal, setShowWaypointModal] = useState(false);
@@ -82,6 +163,51 @@ export default function NavigationGPSScreen() {
   } | null>(null);
   const [waypointName, setWaypointName] = useState('');
   const [exportTitle, setExportTitle] = useState('');
+
+  const openVehicleConfig = useCallback(() => {
+    setVehicleTypeInput(vehicleProfile.vehicleType);
+    setRegistrationInput(vehicleProfile.registration);
+    setBrandInput(vehicleProfile.brand);
+    setLengthInput(formatVehicleValue(vehicleProfile.lengthMeters));
+    setHeightInput(formatVehicleValue(vehicleProfile.heightMeters));
+    setWeightInput(formatVehicleValue(vehicleProfile.weightTons));
+    setShowVehicleConfigModal(true);
+  }, [vehicleProfile]);
+
+  const applyVehiclePreset = useCallback((preset: VehicleProfile) => {
+    setVehicleTypeInput(preset.vehicleType);
+    setRegistrationInput(preset.registration);
+    setBrandInput(preset.brand);
+    setLengthInput(formatVehicleValue(preset.lengthMeters));
+    setHeightInput(formatVehicleValue(preset.heightMeters));
+    setWeightInput(formatVehicleValue(preset.weightTons));
+  }, []);
+
+  const saveVehicleConfiguration = useCallback(() => {
+    const parsedLength = Number.parseFloat(lengthInput.replace(',', '.'));
+    const parsedHeight = Number.parseFloat(heightInput.replace(',', '.'));
+    const parsedWeight = Number.parseFloat(weightInput.replace(',', '.'));
+
+    if (!vehicleTypeInput.trim() || !registrationInput.trim() || !brandInput.trim()) {
+      Alert.alert('Configuration incomplete', 'Renseignez le type, la marque et l immatriculation du vehicule.');
+      return;
+    }
+
+    if ([parsedLength, parsedHeight, parsedWeight].some((value) => Number.isNaN(value) || value <= 0)) {
+      Alert.alert('Dimensions invalides', 'Saisissez une longueur, une hauteur et un poids valides.');
+      return;
+    }
+
+    setVehicleProfile({
+      vehicleType: vehicleTypeInput.trim(),
+      registration: registrationInput.trim().toUpperCase(),
+      brand: brandInput.trim(),
+      lengthMeters: parsedLength,
+      heightMeters: parsedHeight,
+      weightTons: parsedWeight,
+    });
+    setShowVehicleConfigModal(false);
+  }, [brandInput, heightInput, lengthInput, registrationInput, vehicleTypeInput, weightInput]);
 
   // ─── Permissions & localisation ───────────────────────
   useEffect(() => {
@@ -417,6 +543,38 @@ export default function NavigationGPSScreen() {
             </Text>
           </View>
         </View>
+
+        {canConfigureVehicle && (
+          <View style={styles.vehicleConfigCard}>
+            <View style={styles.vehicleConfigHeader}>
+              <View style={styles.vehicleConfigTitleBlock}>
+                <Text style={styles.vehicleConfigTitle}>Vehicule actif</Text>
+                <Text style={styles.vehicleConfigSubtitle}>
+                  {vehicleProfile.vehicleType} • {vehicleProfile.brand}
+                </Text>
+              </View>
+              <TouchableOpacity style={styles.vehicleConfigButton} onPress={openVehicleConfig}>
+                <IconSymbol name="slider.horizontal.3" size={16} color="#FFFFFF" />
+                <Text style={styles.vehicleConfigButtonText}>Configurer</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.vehicleIdentityRow}>
+              <View style={styles.vehicleIdentityPill}>
+                <Text style={styles.vehicleIdentityLabel}>Immatriculation</Text>
+                <Text style={styles.vehicleIdentityValue}>{vehicleProfile.registration}</Text>
+              </View>
+              <View style={styles.vehicleIdentityPill}>
+                <Text style={styles.vehicleIdentityLabel}>Marque</Text>
+                <Text style={styles.vehicleIdentityValue}>{vehicleProfile.brand}</Text>
+              </View>
+            </View>
+
+            <Text style={styles.vehicleConfigHint}>
+              Configuration mock locale. Les donnees ne sont pas encore stockees en base.
+            </Text>
+          </View>
+        )}
 
         <TextInput
           style={styles.routeInput}
@@ -803,6 +961,91 @@ export default function NavigationGPSScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={showVehicleConfigModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, styles.vehicleModalContent]}>
+            <Text style={styles.modalTitle}>Configurer le vehicule</Text>
+            <Text style={styles.vehicleModalIntro}>
+              Choisissez un exemple ou saisissez librement les caracteristiques du vehicule utilise.
+            </Text>
+
+            <View style={styles.presetRow}>
+              {VEHICLE_PRESETS.map((preset) => (
+                <TouchableOpacity
+                  key={`${preset.vehicleType}-${preset.registration}`}
+                  style={styles.presetChip}
+                  onPress={() => applyVehiclePreset(preset)}
+                >
+                  <Text style={styles.presetChipText}>{preset.vehicleType}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Type de vehicule"
+              placeholderTextColor="#999"
+              value={vehicleTypeInput}
+              onChangeText={setVehicleTypeInput}
+            />
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Immatriculation"
+              placeholderTextColor="#999"
+              autoCapitalize="characters"
+              value={registrationInput}
+              onChangeText={setRegistrationInput}
+            />
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Marque / modele"
+              placeholderTextColor="#999"
+              value={brandInput}
+              onChangeText={setBrandInput}
+            />
+
+            <View style={styles.metricRow}>
+              <TextInput
+                style={[styles.modalInput, styles.metricInput]}
+                placeholder="Longueur (m)"
+                placeholderTextColor="#999"
+                keyboardType="decimal-pad"
+                value={lengthInput}
+                onChangeText={setLengthInput}
+              />
+              <TextInput
+                style={[styles.modalInput, styles.metricInput]}
+                placeholder="Hauteur (m)"
+                placeholderTextColor="#999"
+                keyboardType="decimal-pad"
+                value={heightInput}
+                onChangeText={setHeightInput}
+              />
+              <TextInput
+                style={[styles.modalInput, styles.metricInput]}
+                placeholder="Poids (t)"
+                placeholderTextColor="#999"
+                keyboardType="decimal-pad"
+                value={weightInput}
+                onChangeText={setWeightInput}
+              />
+            </View>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setShowVehicleConfigModal(false)}
+              >
+                <Text style={styles.modalCancelText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalConfirmBtn} onPress={saveVehicleConfiguration}>
+                <Text style={styles.modalConfirmText}>Appliquer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -889,6 +1132,74 @@ const styles = StyleSheet.create({
     color: COLORS.primaryDark,
     fontSize: 11,
     fontWeight: '700',
+  },
+  vehicleConfigCard: {
+    backgroundColor: '#F7FBF7',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#D8E9DA',
+    gap: 10,
+  },
+  vehicleConfigHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  vehicleConfigTitleBlock: {
+    flex: 1,
+  },
+  vehicleConfigTitle: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  vehicleConfigSubtitle: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    marginTop: 4,
+  },
+  vehicleConfigButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  vehicleConfigButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  vehicleIdentityRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  vehicleIdentityPill: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E0ECE1',
+  },
+  vehicleIdentityLabel: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
+    marginBottom: 4,
+  },
+  vehicleIdentityValue: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  vehicleConfigHint: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    lineHeight: 18,
   },
   routeInput: {
     backgroundColor: '#F3F5F4',
@@ -1174,11 +1485,21 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 400,
   },
+  vehicleModalContent: {
+    maxWidth: 460,
+  },
   modalTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: COLORS.text,
     marginBottom: 16,
+    textAlign: 'center',
+  },
+  vehicleModalIntro: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 14,
     textAlign: 'center',
   },
   modalInput: {
@@ -1189,6 +1510,32 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: COLORS.text,
     marginBottom: 16,
+  },
+  presetRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  presetChip: {
+    backgroundColor: '#ECF6ED',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: '#CFE2D1',
+  },
+  presetChipText: {
+    color: COLORS.primaryDark,
+    fontWeight: '600',
+    fontSize: 12,
+  },
+  metricRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  metricInput: {
+    flex: 1,
   },
   modalButtons: {
     flexDirection: 'row',

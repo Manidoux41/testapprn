@@ -23,12 +23,17 @@ interface RegisterPayload {
   plan: SubscriptionPlan;
 }
 
+interface LoginOptions {
+  testPlan?: SubscriptionPlan;
+}
+
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (identifier: string, password: string) => Promise<boolean>;
+  login: (identifier: string, password: string, options?: LoginOptions) => Promise<boolean>;
   register: (payload: RegisterPayload) => Promise<boolean>;
+  changePlan: (plan: SubscriptionPlan) => Promise<boolean>;
   logout: () => void;
   resetPassword: (email: string) => Promise<boolean>;
 }
@@ -63,7 +68,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const login = async (identifier: string, password: string): Promise<boolean> => {
+  const login = async (
+    identifier: string,
+    password: string,
+    options?: LoginOptions
+  ): Promise<boolean> => {
     setIsLoading(true);
 
     // Simulation d'appel API
@@ -82,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       lastName: 'Utilisateur',
       licenseNumber: 'D000000',
       companyName: 'Mon Entreprise',
-      plan: 'free',
+      plan: __DEV__ ? options?.testPlan ?? 'free' : 'free',
     });
     setIsLoading(false);
     return true;
@@ -104,6 +113,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       licenseNumber: payload.licenseNumber || 'D000000',
       companyName: payload.companyName || 'Indépendant',
       plan: payload.plan,
+    });
+
+    setIsLoading(false);
+    return true;
+  };
+
+  const changePlan = async (plan: SubscriptionPlan): Promise<boolean> => {
+    if (!user) {
+      return false;
+    }
+
+    setIsLoading(true);
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    setUser({
+      ...user,
+      plan,
     });
 
     setIsLoading(false);
@@ -132,6 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading,
     login,
     register,
+    changePlan,
     logout,
     resetPassword
   };

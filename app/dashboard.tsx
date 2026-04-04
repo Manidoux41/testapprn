@@ -1,4 +1,5 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { getPlanDefinition, getPlanLabel, SUBSCRIPTION_PLANS } from '@/constants/subscription-plans';
 import { useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
 import React, { useEffect } from 'react';
@@ -13,7 +14,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function DashboardScreen() {
-  const { user, logout, isAuthenticated } = useAuth();
+  const { user, logout, isAuthenticated, changePlan, isLoading } = useAuth();
+  const currentPlanIndex = SUBSCRIPTION_PLANS.findIndex((plan) => plan.id === user?.plan);
+  const upgradePlans = SUBSCRIPTION_PLANS.filter((plan, index) => index > currentPlanIndex);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -35,6 +38,24 @@ export default function DashboardScreen() {
             router.replace('/');
           }
         }
+      ]
+    );
+  };
+
+  const handleUpgrade = (planId: 'private' | 'expert') => {
+    const plan = getPlanDefinition(planId);
+
+    Alert.alert(
+      `Passer au forfait ${plan.shortLabel}`,
+      `Le forfait ${plan.shortLabel} necessite un passage par l'ecran de paiement.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Continuer',
+          onPress: () => {
+            router.push({ pathname: '/upgrade-plan', params: { plan: planId } });
+          },
+        },
       ]
     );
   };
@@ -103,10 +124,10 @@ export default function DashboardScreen() {
             <View style={styles.userDetails}>
               <Text style={styles.welcomeText}>Bienvenue,</Text>
               <Text style={styles.userName}>{user?.firstName} {user?.lastName}</Text>
-              <Text style={styles.userRole}>Chauffeur • {user?.licenseNumber}</Text>
+              <Text style={styles.userRole}>Professionnel de la route • {user?.licenseNumber}</Text>
               <Text style={styles.companyName}>{user?.companyName}</Text>
               <View style={styles.planBadge}>
-                <Text style={styles.planBadgeText}>Forfait {user?.plan ?? 'free'}</Text>
+                <Text style={styles.planBadgeText}>Forfait {getPlanLabel(user?.plan)}</Text>
               </View>
             </View>
           </View>
@@ -161,6 +182,50 @@ export default function DashboardScreen() {
             ))}
           </View>
         </View>
+
+        {upgradePlans.length > 0 ? (
+          <View style={styles.upgradeContainer}>
+            <Text style={styles.sectionTitle}>Debloquer plus de fonctionnalites</Text>
+            <View style={styles.upgradeHeroCard}>
+              <Text style={styles.upgradeHeroTitle}>Votre forfait {getPlanLabel(user?.plan)} est actif</Text>
+              <Text style={styles.upgradeHeroText}>
+                Passez par le paiement du forfait superieur pour activer plus de fonctionnalites metier sur votre compte.
+              </Text>
+            </View>
+
+            {upgradePlans.map((plan) => (
+              <View key={plan.id} style={styles.upgradeCard}>
+                <View style={styles.upgradeCardHeader}>
+                  <View>
+                    <Text style={styles.upgradeCardTitle}>{plan.title}</Text>
+                    <Text style={[styles.upgradeCardPrice, { color: plan.accent }]}>{plan.priceLabel}</Text>
+                  </View>
+                  <View style={[styles.upgradeBadge, { backgroundColor: plan.accent }]}>
+                    <Text style={styles.upgradeBadgeText}>{plan.shortLabel}</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.upgradeDescription}>{plan.description}</Text>
+                {plan.features.map((feature) => (
+                  <View key={feature} style={styles.upgradeFeatureRow}>
+                    <IconSymbol name="checkmark.circle.fill" size={16} color={plan.accent} />
+                    <Text style={styles.upgradeFeatureText}>{feature}</Text>
+                  </View>
+                ))}
+
+                <TouchableOpacity
+                  style={[styles.upgradeButton, { backgroundColor: plan.accent }, isLoading && styles.upgradeButtonDisabled]}
+                  onPress={() => handleUpgrade(plan.id)}
+                  disabled={isLoading}
+                >
+                  <Text style={styles.upgradeButtonText}>
+                    {isLoading ? 'Chargement...' : `Payer puis activer ${plan.shortLabel}`}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         {/* Rappels et notifications */}
         <View style={styles.notificationsContainer}>
@@ -341,6 +406,96 @@ const styles = StyleSheet.create({
   },
   notificationsContainer: {
     paddingHorizontal: 20,
+  },
+  upgradeContainer: {
+    paddingHorizontal: 20,
+    marginBottom: 20,
+  },
+  upgradeHeroCard: {
+    backgroundColor: '#EDF8EE',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#D2E7D5',
+    marginBottom: 12,
+  },
+  upgradeHeroTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1F4D28',
+    marginBottom: 6,
+  },
+  upgradeHeroText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#4E6953',
+  },
+  upgradeCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  upgradeCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  upgradeCardTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1F3423',
+  },
+  upgradeCardPrice: {
+    marginTop: 4,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  upgradeBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  upgradeBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  upgradeDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#557058',
+    marginBottom: 10,
+  },
+  upgradeFeatureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  upgradeFeatureText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#28422D',
+  },
+  upgradeButton: {
+    marginTop: 10,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  upgradeButtonDisabled: {
+    opacity: 0.7,
+  },
+  upgradeButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
   },
   notificationCard: {
     backgroundColor: '#FFF',
