@@ -2,16 +2,19 @@
   "expo": {
     "name": "testapprn",
     "slug": "testapprn",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "testapprn",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.manfredparbatia.testapprn",
+      "buildNumber": "1.0.0"
     },
     "android": {
+      "package": "com.manfredparbatia.testapprn",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -43,6 +46,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "2561c27d-aee8-484d-8033-28cd1ba80c33"
+      }
+    },
+    "owner": "superflyman90"
   }
 }

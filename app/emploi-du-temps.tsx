@@ -14,6 +14,7 @@ import {
     ScrollView,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -33,12 +34,118 @@ const COLORS = {
   warningText: '#A06300',
 };
 
+const MISSION_COLORS = ['#388E3C', '#1E88E5', '#F9A825', '#8E24AA', '#E53935', '#00897B'];
+
+type AgendaEntry = ScheduleDay['entries'][number] & {
+  missionColor?: string;
+  sourceType: 'import' | 'manual';
+};
+
+interface AgendaDay {
+  date: string;
+  entries: AgendaEntry[];
+  totalServiceMinutes: number;
+  amplitudeMinutes: number;
+}
+
+interface ManualMission {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  title: string;
+  origin?: string;
+  destination?: string;
+  missionColor: string;
+}
+
+interface CalendarCell {
+  date: string;
+  dayNumber: number;
+  isCurrentMonth: boolean;
+  isToday: boolean;
+  missionCount: number;
+}
+
+const CALENDAR_WEEKDAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+
 export default function EmploiDuTempsScreen() {
   const [isImporting, setIsImporting] = useState(false);
   const [result, setResult] = useState<ScheduleExtractionResult | null>(null);
+  const [manualMissions, setManualMissions] = useState<ManualMission[]>([]);
+  const [missionDate, setMissionDate] = useState(getTodayIsoDate());
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(getTodayIsoDate());
+  const [visibleMonth, setVisibleMonth] = useState(getMonthKeyFromIsoDate(getTodayIsoDate()));
+  const [missionStartTime, setMissionStartTime] = useState('08:00');
+  const [missionEndTime, setMissionEndTime] = useState('10:00');
+  const [missionTitle, setMissionTitle] = useState('');
+  const [missionOrigin, setMissionOrigin] = useState('');
+  const [missionDestination, setMissionDestination] = useState('');
+  const [selectedMissionColor, setSelectedMissionColor] = useState(MISSION_COLORS[0]);
+
+  const agendaDays = useMemo<AgendaDay[]>(() => {
+    const importedEntries: AgendaEntry[] = (result?.entries ?? []).map((entry) => ({
+      ...entry,
+      sourceType: 'import',
+      missionColor: undefined,
+    }));
+
+    const manualEntries: AgendaEntry[] = manualMissions.map((mission) => ({
+      id: mission.id,
+      date: mission.date,
+      startTime: normalizeTimeInput(mission.startTime),
+      endTime: normalizeTimeInput(mission.endTime),
+      title: mission.title,
+      origin: mission.origin,
+      destination: mission.destination,
+      durationMinutes: calculateDurationMinutes(
+        normalizeTimeInput(mission.startTime),
+        normalizeTimeInput(mission.endTime)
+      ),
+      sourceText: 'Mission ajoutee manuellement',
+      confidence: 'high',
+      sourceType: 'manual',
+      missionColor: mission.missionColor,
+    }));
+
+    const grouped = new Map<string, AgendaEntry[]>();
+    for (const entry of [...importedEntries, ...manualEntries]) {
+      const dayEntries = grouped.get(entry.date) ?? [];
+      dayEntries.push(entry);
+      grouped.set(entry.date, dayEntries);
+    }
+
+    return [...grouped.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([date, entries]) => {
+        const sortedEntries = [...entries].sort((left, right) => {
+          if (left.startTime !== right.startTime) {
+            return left.startTime.localeCompare(right.startTime);
+          }
+
+          return left.title.localeCompare(right.title);
+        });
+
+        return {
+          date,
+          entries: sortedEntries,
+          totalServiceMinutes: sortedEntries.reduce(
+            (sum, entry) => sum + entry.durationMinutes,
+            0
+          ),
+          amplitudeMinutes:
+            sortedEntries.length > 0
+              ? calculateDurationMinutes(
+                  sortedEntries[0].startTime,
+                  sortedEntries[sortedEntries.length - 1].endTime
+                )
+              : 0,
+        };
+      });
+  }, [manualMissions, result]);
 
   const totals = useMemo(() => {
-    if (!result) {
+    if (agendaDays.length === 0) {
       return {
         dayCount: 0,
         serviceCount: 0,
@@ -48,12 +155,89 @@ export default function EmploiDuTempsScreen() {
     }
 
     return {
-      dayCount: result.days.length,
-      serviceCount: result.entries.length,
-      totalServiceMinutes: result.days.reduce((sum, day) => sum + day.totalServiceMinutes, 0),
-      totalAmplitudeMinutes: result.days.reduce((sum, day) => sum + day.amplitudeMinutes, 0),
+      dayCount: agendaDays.length,
+      serviceCount: agendaDays.reduce((sum, day) => sum + day.entries.length, 0),
+      totalServiceMinutes: agendaDays.reduce((sum, day) => sum + day.totalServiceMinutes, 0),
+      totalAmplitudeMinutes: agendaDays.reduce((sum, day) => sum + day.amplitudeMinutes, 0),
     };
-  }, [result]);
+  }, [agendaDays]);
+
+  const selectedAgendaDay = useMemo(
+    () => agendaDays.find((day) => day.date === selectedCalendarDate) ?? null,
+    [agendaDays, selectedCalendarDate]
+  );
+
+  const calendarCells = useMemo(
+    () => buildCalendarCells(visibleMonth, agendaDays),
+    [agendaDays, visibleMonth]
+  );
+
+  const selectedDateStatus = useMemo(
+    () => getDateStatus(selectedCalendarDate),
+    [selectedCalendarDate]
+  );
+
+  const monthMissionCount = useMemo(
+    () => calendarCells.reduce((sum, cell) => sum + (cell.isCurrentMonth ? cell.missionCount : 0), 0),
+    [calendarCells]
+  );
+
+  const monthDaysWithMissions = useMemo(
+    () => calendarCells.filter((cell) => cell.isCurrentMonth && cell.missionCount > 0).length,
+    [calendarCells]
+  );
+
+  const handleSelectCalendarDate = (date: string) => {
+    setSelectedCalendarDate(date);
+    setMissionDate(date);
+    setVisibleMonth(getMonthKeyFromIsoDate(date));
+  };
+
+  const handleAddMission = () => {
+    const normalizedDate = missionDate.trim();
+    const normalizedTitle = missionTitle.trim();
+    const startTime = normalizeTimeInput(missionStartTime);
+    const endTime = normalizeTimeInput(missionEndTime);
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+      Alert.alert('Date invalide', 'Utilisez le format AAAA-MM-JJ.');
+      return;
+    }
+
+    if (!normalizedTitle) {
+      Alert.alert('Mission incomplete', 'Ajoutez au minimum un titre de mission.');
+      return;
+    }
+
+    if (!isValidTimeInput(startTime) || !isValidTimeInput(endTime)) {
+      Alert.alert('Horaire invalide', 'Utilisez le format HH:MM pour les heures.');
+      return;
+    }
+
+    const mission: ManualMission = {
+      id: `manual-${Date.now()}`,
+      date: normalizedDate,
+      startTime,
+      endTime,
+      title: normalizedTitle,
+      origin: missionOrigin.trim() || undefined,
+      destination: missionDestination.trim() || undefined,
+      missionColor: selectedMissionColor,
+    };
+
+    setManualMissions((current) => [...current, mission]);
+  setSelectedCalendarDate(normalizedDate);
+  setVisibleMonth(getMonthKeyFromIsoDate(normalizedDate));
+    setMissionTitle('');
+    setMissionOrigin('');
+    setMissionDestination('');
+    setMissionStartTime(endTime);
+    setMissionEndTime(endTime);
+  };
+
+  const handleDeleteMission = (missionId: string) => {
+    setManualMissions((current) => current.filter((mission) => mission.id !== missionId));
+  };
 
   const handleImportPdf = async () => {
     try {
@@ -128,7 +312,238 @@ export default function EmploiDuTempsScreen() {
           </Text>
         </View>
 
-        {result && (
+        <View style={styles.heroCard}>
+          <View style={styles.sectionHeaderCompact}>
+            <Text style={styles.heroTitle}>Agenda manuel</Text>
+            <Text style={styles.heroText}>
+              Ajoutez vos missions a la main, jour par jour et heure par heure, avec une couleur libre pour visualiser rapidement votre planning.
+            </Text>
+          </View>
+
+          <View style={styles.formGrid}>
+            <View style={styles.formFieldHalf}>
+              <Text style={styles.inputLabel}>Date</Text>
+              <TextInput
+                style={styles.input}
+                value={missionDate}
+                onChangeText={setMissionDate}
+                placeholder="2026-04-04"
+                placeholderTextColor="#90A191"
+              />
+            </View>
+
+            <View style={styles.formFieldHalf}>
+              <Text style={styles.inputLabel}>Titre de mission</Text>
+              <TextInput
+                style={styles.input}
+                value={missionTitle}
+                onChangeText={setMissionTitle}
+                placeholder="Ligne scolaire matin"
+                placeholderTextColor="#90A191"
+              />
+            </View>
+
+            <View style={styles.formFieldHalf}>
+              <Text style={styles.inputLabel}>Debut</Text>
+              <TextInput
+                style={styles.input}
+                value={missionStartTime}
+                onChangeText={setMissionStartTime}
+                placeholder="08:00"
+                placeholderTextColor="#90A191"
+              />
+            </View>
+
+            <View style={styles.formFieldHalf}>
+              <Text style={styles.inputLabel}>Fin</Text>
+              <TextInput
+                style={styles.input}
+                value={missionEndTime}
+                onChangeText={setMissionEndTime}
+                placeholder="10:30"
+                placeholderTextColor="#90A191"
+              />
+            </View>
+
+            <View style={styles.formFieldHalf}>
+              <Text style={styles.inputLabel}>Depart</Text>
+              <TextInput
+                style={styles.input}
+                value={missionOrigin}
+                onChangeText={setMissionOrigin}
+                placeholder="Depot, ecole, hopital..."
+                placeholderTextColor="#90A191"
+              />
+            </View>
+
+            <View style={styles.formFieldHalf}>
+              <Text style={styles.inputLabel}>Arrivee</Text>
+              <TextInput
+                style={styles.input}
+                value={missionDestination}
+                onChangeText={setMissionDestination}
+                placeholder="Destination"
+                placeholderTextColor="#90A191"
+              />
+            </View>
+          </View>
+
+          <Text style={styles.inputLabel}>Couleur de mission</Text>
+          <View style={styles.colorRow}>
+            {MISSION_COLORS.map((color) => {
+              const isSelected = selectedMissionColor === color;
+              return (
+                <TouchableOpacity
+                  key={color}
+                  style={[
+                    styles.colorSwatch,
+                    { backgroundColor: color },
+                    isSelected && styles.colorSwatchSelected,
+                  ]}
+                  onPress={() => setSelectedMissionColor(color)}
+                >
+                  {isSelected && <IconSymbol name="checkmark.circle.fill" size={18} color="#FFF" />}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <TouchableOpacity style={styles.addMissionButton} onPress={handleAddMission}>
+            <IconSymbol name="checkmark.circle.fill" size={18} color="#FFF" />
+            <Text style={styles.importButtonText}>Ajouter la mission</Text>
+          </TouchableOpacity>
+
+          {manualMissions.length > 0 && (
+            <Text style={styles.helperText}>
+              {manualMissions.length} mission(s) ajoutee(s) manuellement seront fusionnees avec les missions importees.
+            </Text>
+          )}
+        </View>
+
+        <View style={styles.heroCard}>
+          <View style={styles.calendarHeaderRow}>
+            <View>
+              <Text style={styles.heroTitle}>Calendrier des missions</Text>
+              <Text style={styles.heroText}>
+                Choisissez une date exacte pour consulter une journee passee, presente ou future.
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.todayShortcutButton}
+              onPress={() => handleSelectCalendarDate(getTodayIsoDate())}
+            >
+              <Text style={styles.todayShortcutText}>Aujourd&apos;hui</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.monthNavigationRow}>
+            <TouchableOpacity
+              style={styles.monthNavButton}
+              onPress={() => setVisibleMonth(shiftMonthKey(visibleMonth, -1))}
+            >
+              <IconSymbol name="chevron.left" size={18} color={COLORS.primaryDark} />
+            </TouchableOpacity>
+
+            <View style={styles.monthLabelBlock}>
+              <Text style={styles.monthLabel}>{formatMonthLabel(visibleMonth)}</Text>
+              <Text style={styles.monthSummaryText}>
+                {monthDaysWithMissions} jour(s) charges • {monthMissionCount} mission(s)
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.monthNavButton}
+              onPress={() => setVisibleMonth(shiftMonthKey(visibleMonth, 1))}
+            >
+              <IconSymbol name="chevron.right" size={18} color={COLORS.primaryDark} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.weekdayRow}>
+            {CALENDAR_WEEKDAYS.map((weekday) => (
+              <Text key={weekday} style={styles.weekdayLabel}>
+                {weekday}
+              </Text>
+            ))}
+          </View>
+
+          <View style={styles.calendarGrid}>
+            {calendarCells.map((cell) => {
+              const isSelected = cell.date === selectedCalendarDate;
+              return (
+                <TouchableOpacity
+                  key={cell.date}
+                  style={[
+                    styles.calendarCell,
+                    !cell.isCurrentMonth && styles.calendarCellMuted,
+                    cell.isToday && styles.calendarCellToday,
+                    isSelected && styles.calendarCellSelected,
+                  ]}
+                  onPress={() => handleSelectCalendarDate(cell.date)}
+                >
+                  <Text
+                    style={[
+                      styles.calendarDayNumber,
+                      !cell.isCurrentMonth && styles.calendarDayNumberMuted,
+                      (cell.isToday || isSelected) && styles.calendarDayNumberActive,
+                    ]}
+                  >
+                    {cell.dayNumber}
+                  </Text>
+                  {cell.missionCount > 0 ? (
+                    <View style={[styles.calendarMissionDot, isSelected && styles.calendarMissionDotSelected]}>
+                      <Text style={styles.calendarMissionCount}>{cell.missionCount}</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.calendarMissionPlaceholder} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <View style={styles.selectedDateCard}>
+            <View style={styles.selectedDateHeader}>
+              <View>
+                <Text style={styles.selectedDateLabel}>Date selectionnee</Text>
+                <Text style={styles.selectedDateTitle}>{formatDay(selectedCalendarDate)}</Text>
+              </View>
+              <View style={[
+                styles.dateStatusBadge,
+                selectedDateStatus === 'past'
+                  ? styles.dateStatusPast
+                  : selectedDateStatus === 'present'
+                    ? styles.dateStatusPresent
+                    : styles.dateStatusFuture,
+              ]}>
+                <Text style={styles.dateStatusText}>{formatDateStatusLabel(selectedDateStatus)}</Text>
+              </View>
+            </View>
+
+            {selectedAgendaDay ? (
+              <View style={styles.selectedDateMetrics}>
+                <View style={styles.selectedDateMetricCard}>
+                  <Text style={styles.selectedDateMetricValue}>{selectedAgendaDay.entries.length}</Text>
+                  <Text style={styles.selectedDateMetricLabel}>mission(s)</Text>
+                </View>
+                <View style={styles.selectedDateMetricCard}>
+                  <Text style={styles.selectedDateMetricValue}>{formatMinutes(selectedAgendaDay.totalServiceMinutes)}</Text>
+                  <Text style={styles.selectedDateMetricLabel}>travail</Text>
+                </View>
+                <View style={styles.selectedDateMetricCard}>
+                  <Text style={styles.selectedDateMetricValue}>{formatMinutes(selectedAgendaDay.amplitudeMinutes)}</Text>
+                  <Text style={styles.selectedDateMetricLabel}>amplitude</Text>
+                </View>
+              </View>
+            ) : (
+              <Text style={styles.selectedDateEmptyText}>
+                Aucune mission n&apos;est planifiee pour cette date. Vous pouvez l&apos;alimenter via l&apos;import PDF ou le formulaire manuel.
+              </Text>
+            )}
+          </View>
+        </View>
+
+        {agendaDays.length > 0 && (
           <>
             <View style={styles.summaryGrid}>
               <SummaryCard label="Jours" value={String(totals.dayCount)} />
@@ -137,46 +552,71 @@ export default function EmploiDuTempsScreen() {
               <SummaryCard label="Amplitude" value={formatMinutes(totals.totalAmplitudeMinutes)} />
             </View>
 
-            <View style={styles.fileCard}>
-              <Text style={styles.fileLabel}>Document charge</Text>
-              <Text style={styles.fileName}>{result.fileName}</Text>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Journee selectionnee</Text>
+              <Text style={styles.sectionSubtitle}>Detail de la date choisie dans le calendrier</Text>
             </View>
 
-            <View style={styles.fileCard}>
-              <Text style={styles.fileLabel}>Moteur d&apos;analyse</Text>
-              <Text style={styles.fileName}>{result.extractionProvider}</Text>
-              <Text style={styles.engineText}>
-                Mode {result.extractionMode === 'hybrid' ? 'hybride' : result.extractionMode}
-              </Text>
-            </View>
-
-            {result.warnings.length > 0 && (
-              <View style={styles.warningCard}>
-                <Text style={styles.warningTitle}>Points d&apos;attention</Text>
-                {result.warnings.map((warning) => (
-                  <Text key={warning} style={styles.warningText}>
-                    • {warning}
-                  </Text>
-                ))}
+            {selectedAgendaDay ? (
+              <DayCard day={selectedAgendaDay} onDeleteMission={handleDeleteMission} />
+            ) : (
+              <View style={styles.emptyAgendaCard}>
+                <Text style={styles.emptyAgendaTitle}>Aucun service sur cette date</Text>
+                <Text style={styles.emptyAgendaText}>
+                  Essayez une autre date du calendrier pour consulter un planning passe, en cours ou futur.
+                </Text>
               </View>
             )}
 
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Agenda extrait</Text>
-              <Text style={styles.sectionSubtitle}>Classement par jour et par horaire</Text>
+              <Text style={styles.sectionTitle}>Vue d&apos;ensemble</Text>
+              <Text style={styles.sectionSubtitle}>Toutes les journees consolidees actuellement detectees</Text>
             </View>
 
-            {result.days.map((day) => (
-              <DayCard key={day.date} day={day} />
+            {agendaDays.map((day) => (
+              <DayCard key={day.date} day={day} onDeleteMission={handleDeleteMission} />
             ))}
 
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Texte source detecte</Text>
-              <Text style={styles.sectionSubtitle}>Utile pour verifier ce que le parseur a compris</Text>
-            </View>
-            <View style={styles.rawTextCard}>
-              <Text style={styles.rawText}>{result.extractedText || 'Aucun texte exploitable detecte.'}</Text>
-            </View>
+            {result && (
+              <>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Source PDF analysee</Text>
+                  <Text style={styles.sectionSubtitle}>Informations issues de l&apos;import automatique</Text>
+                </View>
+
+                <View style={styles.fileCard}>
+                  <Text style={styles.fileLabel}>Document charge</Text>
+                  <Text style={styles.fileName}>{result.fileName}</Text>
+                </View>
+
+                <View style={styles.fileCard}>
+                  <Text style={styles.fileLabel}>Moteur d&apos;analyse</Text>
+                  <Text style={styles.fileName}>{result.extractionProvider}</Text>
+                  <Text style={styles.engineText}>
+                    Mode {result.extractionMode === 'hybrid' ? 'hybride' : result.extractionMode}
+                  </Text>
+                </View>
+
+                {result.warnings.length > 0 && (
+                  <View style={styles.warningCard}>
+                    <Text style={styles.warningTitle}>Points d&apos;attention</Text>
+                    {result.warnings.map((warning) => (
+                      <Text key={warning} style={styles.warningText}>
+                        • {warning}
+                      </Text>
+                    ))}
+                  </View>
+                )}
+
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Texte source detecte</Text>
+                  <Text style={styles.sectionSubtitle}>Utile pour verifier ce que le parseur a compris</Text>
+                </View>
+                <View style={styles.rawTextCard}>
+                  <Text style={styles.rawText}>{result.extractedText || 'Aucun texte exploitable detecte.'}</Text>
+                </View>
+              </>
+            )}
           </>
         )}
       </ScrollView>
@@ -193,7 +633,13 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DayCard({ day }: { day: ScheduleDay }) {
+function DayCard({
+  day,
+  onDeleteMission,
+}: {
+  day: AgendaDay;
+  onDeleteMission: (missionId: string) => void;
+}) {
   return (
     <View style={styles.dayCard}>
       <View style={styles.dayHeader}>
@@ -211,14 +657,45 @@ function DayCard({ day }: { day: ScheduleDay }) {
         <View key={entry.id} style={styles.entryRow}>
           <View style={styles.timelineCol}>
             <Text style={styles.entryHours}>{entry.startTime}</Text>
-            <View style={styles.timelineBar} />
+            <View
+              style={[
+                styles.timelineBar,
+                entry.missionColor ? { backgroundColor: entry.missionColor } : null,
+              ]}
+            />
             <Text style={styles.entryHours}>{entry.endTime}</Text>
           </View>
 
-          <View style={styles.entryCard}>
+          <View style={[styles.entryCard, entry.missionColor ? { borderLeftColor: entry.missionColor, borderLeftWidth: 5 } : null]}>
             <View style={styles.entryHeader}>
-              <Text style={styles.entryTitle}>{entry.title}</Text>
-              <Text style={styles.entryDuration}>{formatMinutes(entry.durationMinutes)}</Text>
+              <View style={styles.entryTitleBlock}>
+                <Text style={styles.entryTitle}>{entry.title}</Text>
+                <View style={styles.entryMetaRow}>
+                  <View
+                    style={[
+                      styles.sourceBadge,
+                      entry.sourceType === 'manual' ? styles.manualBadge : styles.importBadge,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.sourceBadgeText,
+                        entry.sourceType === 'manual' ? styles.manualBadgeText : styles.importBadgeText,
+                      ]}
+                    >
+                      {entry.sourceType === 'manual' ? 'Manuel' : 'Import PDF'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+              <View style={styles.entryActions}>
+                <Text style={styles.entryDuration}>{formatMinutes(entry.durationMinutes)}</Text>
+                {entry.sourceType === 'manual' && (
+                  <TouchableOpacity onPress={() => onDeleteMission(entry.id)} style={styles.deleteButton}>
+                    <IconSymbol name="xmark.circle.fill" size={18} color="#D32F2F" />
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
 
             {(entry.origin || entry.destination) && (
@@ -249,6 +726,115 @@ function formatDay(date: string): string {
     month: 'long',
     year: 'numeric',
   });
+}
+
+function getTodayIsoDate(): string {
+  return toLocalIsoDate(new Date());
+}
+
+function getMonthKeyFromIsoDate(date: string): string {
+  return date.slice(0, 7);
+}
+
+function toLocalIsoDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function buildCalendarCells(monthKey: string, agendaDays: AgendaDay[]): CalendarCell[] {
+  const [yearValue, monthValue] = monthKey.split('-').map(Number);
+  const monthStart = new Date(yearValue, monthValue - 1, 1);
+  const monthStartWeekday = (monthStart.getDay() + 6) % 7;
+  const gridStart = new Date(yearValue, monthValue - 1, 1 - monthStartWeekday);
+  const missionCountByDate = new Map(agendaDays.map((day) => [day.date, day.entries.length]));
+  const today = getTodayIsoDate();
+  const cells: CalendarCell[] = [];
+
+  for (let index = 0; index < 42; index += 1) {
+    const currentDate = new Date(gridStart);
+    currentDate.setDate(gridStart.getDate() + index);
+    const isoDate = toLocalIsoDate(currentDate);
+    cells.push({
+      date: isoDate,
+      dayNumber: currentDate.getDate(),
+      isCurrentMonth: getMonthKeyFromIsoDate(isoDate) === monthKey,
+      isToday: isoDate === today,
+      missionCount: missionCountByDate.get(isoDate) ?? 0,
+    });
+  }
+
+  return cells;
+}
+
+function formatMonthLabel(monthKey: string): string {
+  const [yearValue, monthValue] = monthKey.split('-').map(Number);
+  return new Date(yearValue, monthValue - 1, 1).toLocaleDateString('fr-FR', {
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+function shiftMonthKey(monthKey: string, delta: number): string {
+  const [yearValue, monthValue] = monthKey.split('-').map(Number);
+  const shifted = new Date(yearValue, monthValue - 1 + delta, 1);
+  return `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getDateStatus(date: string): 'past' | 'present' | 'future' {
+  const today = getTodayIsoDate();
+
+  if (date < today) {
+    return 'past';
+  }
+
+  if (date > today) {
+    return 'future';
+  }
+
+  return 'present';
+}
+
+function formatDateStatusLabel(status: 'past' | 'present' | 'future'): string {
+  if (status === 'past') {
+    return 'Passe';
+  }
+
+  if (status === 'future') {
+    return 'A venir';
+  }
+
+  return 'Aujourd\'hui';
+}
+
+function normalizeTimeInput(value: string): string {
+  const match = value.trim().match(/^(\d{1,2})[:h.](\d{2})$/);
+  if (!match) {
+    return value.trim();
+  }
+
+  return `${match[1].padStart(2, '0')}:${match[2]}`;
+}
+
+function isValidTimeInput(value: string): boolean {
+  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
+}
+
+function calculateDurationMinutes(startTime: string, endTime: string): number {
+  const start = timeToMinutes(startTime);
+  let end = timeToMinutes(endTime);
+
+  if (end < start) {
+    end += 24 * 60;
+  }
+
+  return end - start;
+}
+
+function timeToMinutes(value: string): number {
+  const [hours, minutes] = value.split(':').map(Number);
+  return hours * 60 + minutes;
 }
 
 const styles = StyleSheet.create({
@@ -300,6 +886,9 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     marginBottom: 16,
   },
+  sectionHeaderCompact: {
+    marginBottom: 14,
+  },
   heroTitle: {
     fontSize: 20,
     fontWeight: '700',
@@ -330,6 +919,252 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 13,
     color: COLORS.muted,
+  },
+  formGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 8,
+  },
+  formFieldHalf: {
+    width: '48%',
+  },
+  inputLabel: {
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  input: {
+    backgroundColor: '#F8FBF7',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    color: COLORS.text,
+    fontSize: 15,
+    marginBottom: 12,
+  },
+  colorRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 14,
+  },
+  colorSwatch: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  colorSwatchSelected: {
+    borderWidth: 3,
+    borderColor: '#DDEBDD',
+  },
+  addMissionButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  calendarHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 18,
+  },
+  todayShortcutButton: {
+    backgroundColor: '#E7F3E9',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  todayShortcutText: {
+    color: COLORS.primaryDark,
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  monthNavigationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  monthNavButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#F0F7F0',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthLabelBlock: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  monthLabel: {
+    color: COLORS.text,
+    fontSize: 18,
+    fontWeight: '700',
+    textTransform: 'capitalize',
+  },
+  monthSummaryText: {
+    color: COLORS.muted,
+    marginTop: 4,
+    fontSize: 12,
+  },
+  weekdayRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  weekdayLabel: {
+    width: '14.28%',
+    textAlign: 'center',
+    color: COLORS.muted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -2,
+  },
+  calendarCell: {
+    width: '14.28%',
+    aspectRatio: 1,
+    padding: 4,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  calendarCellMuted: {
+    opacity: 0.45,
+  },
+  calendarCellToday: {
+    backgroundColor: '#EAF5EB',
+  },
+  calendarCellSelected: {
+    backgroundColor: COLORS.primary,
+  },
+  calendarDayNumber: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  calendarDayNumberMuted: {
+    color: COLORS.muted,
+  },
+  calendarDayNumberActive: {
+    color: '#FFF',
+  },
+  calendarMissionDot: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: COLORS.primaryDark,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    marginTop: 4,
+  },
+  calendarMissionDotSelected: {
+    backgroundColor: '#FFF',
+  },
+  calendarMissionCount: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  calendarMissionPlaceholder: {
+    height: 18,
+    marginTop: 4,
+  },
+  selectedDateCard: {
+    marginTop: 12,
+    backgroundColor: '#F8FBF7',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 14,
+  },
+  selectedDateHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  selectedDateLabel: {
+    color: COLORS.muted,
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  selectedDateTitle: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '700',
+    marginTop: 6,
+    textTransform: 'capitalize',
+  },
+  dateStatusBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  dateStatusPast: {
+    backgroundColor: '#ECEFF1',
+  },
+  dateStatusPresent: {
+    backgroundColor: '#DFF3E3',
+  },
+  dateStatusFuture: {
+    backgroundColor: '#E7F0FF',
+  },
+  dateStatusText: {
+    color: COLORS.primaryDark,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  selectedDateMetrics: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginTop: 14,
+  },
+  selectedDateMetricCard: {
+    flex: 1,
+    backgroundColor: COLORS.surface,
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  selectedDateMetricValue: {
+    color: COLORS.primaryDark,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  selectedDateMetricLabel: {
+    color: COLORS.muted,
+    fontSize: 12,
+    marginTop: 5,
+  },
+  selectedDateEmptyText: {
+    marginTop: 14,
+    color: COLORS.muted,
+    fontSize: 14,
+    lineHeight: 20,
   },
   summaryGrid: {
     flexDirection: 'row',
@@ -411,6 +1246,25 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
+  emptyAgendaCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 18,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: 14,
+  },
+  emptyAgendaTitle: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  emptyAgendaText: {
+    color: COLORS.muted,
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+  },
   dayCard: {
     backgroundColor: COLORS.surface,
     borderRadius: 18,
@@ -479,15 +1333,50 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 12,
   },
+  entryTitleBlock: {
+    flex: 1,
+  },
   entryTitle: {
     flex: 1,
     fontSize: 15,
     fontWeight: '700',
     color: COLORS.text,
   },
+  entryMetaRow: {
+    flexDirection: 'row',
+    marginTop: 8,
+  },
+  sourceBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  importBadge: {
+    backgroundColor: '#E8F1FF',
+  },
+  manualBadge: {
+    backgroundColor: '#E7F6EA',
+  },
+  sourceBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  importBadgeText: {
+    color: '#2055A8',
+  },
+  manualBadgeText: {
+    color: COLORS.primaryDark,
+  },
+  entryActions: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
   entryDuration: {
     color: COLORS.primary,
     fontWeight: '700',
+  },
+  deleteButton: {
+    padding: 2,
   },
   entryRoute: {
     color: COLORS.primaryDark,

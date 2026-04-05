@@ -30,8 +30,8 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import MapView, { LongPressEvent, Marker, Polyline, Region } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { WebView } from 'react-native-webview';
 
 const COLORS = {
   primary: '#388E3C',
@@ -110,8 +110,128 @@ function formatVehicleValue(value: number) {
   return Number.isInteger(value) ? value.toString() : value.toFixed(2);
 }
 
+const LEAFLET_HTML = `<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #map { height: 100%; width: 100%; }
+    .leaflet-container { background: #e8f5e9; }
+    .lbl { padding: 4px 8px; border-radius: 4px; font-size: 12px;
+           font-family: sans-serif; white-space: nowrap;
+           box-shadow: 0 2px 4px rgba(0,0,0,.3); color: #fff; }
+    .lbl-start { background: #388E3C; }
+    .lbl-end   { background: #D32F2F; }
+    .lbl-wp    { background: #FF8F00; font-size: 11px; padding: 3px 7px; }
+    .lbl-imp   { background: #1976D2; font-size: 11px; padding: 3px 7px; }
+    .user-dot  { width: 16px; height: 16px; background: #388E3C;
+                 border: 3px solid #fff; border-radius: 50%;
+                 box-shadow: 0 0 8px rgba(0,0,0,.4); }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    var map = L.map('map', { center: [46.603354, 1.888334], zoom: 6, zoomControl: true });
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 19
+    }).addTo(map);
+
+    var lyr = { user: null, track: null, imported: null, planned: null,
+                start: null, end: null, wps: [], impWps: [] };
+
+    function mkIcon(html, ax, ay) {
+      return L.divIcon({ html: html, className: '', iconSize: null, iconAnchor: [ax||0, ay||0] });
+    }
+    var userIcon = mkIcon('<div class="user-dot"></div>', 8, 8);
+
+    function sendMsg(obj) {
+      if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(obj));
+    }
+
+    // Long press via touch timer
+    var pressTimer = null, pressLL = null;
+    map.getContainer().addEventListener('touchstart', function(e) {
+      if (e.touches.length !== 1) return;
+      var t = e.touches[0];
+      pressLL = map.containerPointToLatLng(L.point(t.clientX, t.clientY));
+      pressTimer = setTimeout(function() {
+        if (pressLL) sendMsg({ type: 'longPress', latitude: pressLL.lat, longitude: pressLL.lng });
+      }, 600);
+    }, { passive: true });
+    map.getContainer().addEventListener('touchend',   function() { clearTimeout(pressTimer); pressLL = null; }, { passive: true });
+    map.getContainer().addEventListener('touchmove',  function() { clearTimeout(pressTimer); pressLL = null; }, { passive: true });
+    map.on('contextmenu', function(e) { sendMsg({ type: 'longPress', latitude: e.latlng.lat, longitude: e.latlng.lng }); });
+
+    // Commands from React Native
+    function handle(ev) {
+      try {
+        var m = JSON.parse(ev.data);
+        switch (m.action) {
+          case 'setUserLocation':   setUser(m.lat, m.lng); break;
+          case 'setTrackPoints':    setTrack(m.points); break;
+          case 'setWaypoints':      setWps(m.waypoints); break;
+          case 'setImportedData':   setImported(m.trackPoints, m.waypoints); break;
+          case 'setPlannedRoute':   setPlanned(m.coords, m.start, m.end); break;
+          case 'clearPlannedRoute': clearPlanned(); break;
+          case 'fitBounds':         fitB(m.coords); break;
+          case 'centerOn':          map.setView([m.lat, m.lng], m.zoom || 14, { animate: true }); break;
+        }
+      } catch(e) {}
+    }
+    document.addEventListener('message', handle);
+    window.addEventListener('message', handle);
+
+    function setUser(lat, lng) {
+      if (lyr.user) { lyr.user.setLatLng([lat, lng]); }
+      else { lyr.user = L.marker([lat, lng], { icon: userIcon, zIndexOffset: 1000 }).addTo(map); map.setView([lat, lng], 14, { animate: true }); }
+    }
+    function setTrack(pts) {
+      if (lyr.track) { map.removeLayer(lyr.track); lyr.track = null; }
+      if (pts && pts.length > 1)
+        lyr.track = L.polyline(pts.map(function(p){ return [p.latitude, p.longitude]; }), { color: '#D32F2F', weight: 5 }).addTo(map);
+    }
+    function setWps(wps) {
+      lyr.wps.forEach(function(m){ map.removeLayer(m); }); lyr.wps = [];
+      (wps||[]).forEach(function(wp) {
+        lyr.wps.push(L.marker([wp.latitude, wp.longitude], { icon: mkIcon('<div class="lbl lbl-wp">'+(wp.name||'Etape')+'</div>', 0, 10) }).addTo(map));
+      });
+    }
+    function setImported(tps, wps) {
+      if (lyr.imported) { map.removeLayer(lyr.imported); lyr.imported = null; }
+      lyr.impWps.forEach(function(m){ map.removeLayer(m); }); lyr.impWps = [];
+      if (tps && tps.length > 1)
+        lyr.imported = L.polyline(tps.map(function(p){ return [p.latitude, p.longitude]; }), { color: '#1976D2', weight: 4, dashArray: '10,6' }).addTo(map);
+      (wps||[]).forEach(function(wp) {
+        lyr.impWps.push(L.marker([wp.latitude, wp.longitude], { icon: mkIcon('<div class="lbl lbl-imp">'+(wp.name||'Point')+'</div>', 0, 10) }).addTo(map));
+      });
+    }
+    function setPlanned(coords, start, end) {
+      clearPlanned();
+      if (coords && coords.length > 1)
+        lyr.planned = L.polyline(coords.map(function(c){ return [c.latitude, c.longitude]; }), { color: '#FF8F00', weight: 6 }).addTo(map);
+      if (start) lyr.start = L.marker([start.latitude, start.longitude], { icon: mkIcon('<div class="lbl lbl-start">DEPART</div>', 35, 14) }).addTo(map);
+      if (end)   lyr.end   = L.marker([end.latitude,   end.longitude],   { icon: mkIcon('<div class="lbl lbl-end">ARRIVEE</div>', 38, 14) }).addTo(map);
+    }
+    function clearPlanned() {
+      ['planned','start','end'].forEach(function(k){ if(lyr[k]){ map.removeLayer(lyr[k]); lyr[k]=null; } });
+    }
+    function fitB(coords) {
+      if (!coords || coords.length === 0) return;
+      map.fitBounds(L.latLngBounds(coords.map(function(c){ return [c.latitude, c.longitude]; })), { padding: [60,60], maxZoom: 15, animate: true });
+    }
+  </script>
+</body>
+</html>`;
+
 export default function NavigationGPSScreen() {
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<WebView>(null);
+  const [mapReady, setMapReady] = useState(false);
   const { user } = useAuth();
 
   // Position & permissions
@@ -277,14 +397,75 @@ export default function NavigationGPSScreen() {
     };
   }, []);
 
+  // ─── sendToMap helper ─────────────────────────────────
+  const sendToMap = useCallback((action: string, payload: Record<string, unknown> = {}) => {
+    if (mapRef.current) {
+      mapRef.current.postMessage(JSON.stringify({ action, ...payload }));
+    }
+  }, []);
+
+  // ─── Sync état → carte après chargement ───────────────
+  useEffect(() => {
+    if (!mapReady || !location) return;
+    sendToMap('setUserLocation', {
+      lat: location.coords.latitude,
+      lng: location.coords.longitude,
+    });
+  }, [location, mapReady, sendToMap]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    sendToMap('setTrackPoints', { points: trackPoints });
+  }, [trackPoints, mapReady, sendToMap]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    sendToMap('setWaypoints', { waypoints });
+  }, [waypoints, mapReady, sendToMap]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    sendToMap('setImportedData', {
+      trackPoints: importedTrackPoints,
+      waypoints: importedWaypoints,
+    });
+  }, [importedTrackPoints, importedWaypoints, mapReady, sendToMap]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    if (plannedRoute) {
+      sendToMap('setPlannedRoute', {
+        coords: plannedRoute.coordinates,
+        start: plannedRoute.start,
+        end: plannedRoute.end,
+      });
+    } else {
+      sendToMap('clearPlannedRoute');
+    }
+  }, [plannedRoute, mapReady, sendToMap]);
+
   // ─── Ajout de waypoint ────────────────────────────────
-  const handleMapLongPress = (e: LongPressEvent) => {
-    if (!isRecording) return;
-    const { latitude, longitude } = e.nativeEvent.coordinate;
-    setPendingWaypointCoord({ latitude, longitude });
-    setWaypointName('');
-    setShowWaypointModal(true);
-  };
+  const onMapMessage = useCallback((event: { nativeEvent: { data: string } }) => {
+    try {
+      const msg = JSON.parse(event.nativeEvent.data) as {
+        type: string;
+        latitude?: number;
+        longitude?: number;
+      };
+      if (
+        msg.type === 'longPress' &&
+        isRecording &&
+        msg.latitude !== undefined &&
+        msg.longitude !== undefined
+      ) {
+        setPendingWaypointCoord({ latitude: msg.latitude, longitude: msg.longitude });
+        setWaypointName('');
+        setShowWaypointModal(true);
+      }
+    } catch {
+      // ignorer les erreurs de parsing
+    }
+  }, [isRecording]);
 
   const confirmWaypoint = () => {
     if (!pendingWaypointCoord) return;
@@ -348,11 +529,10 @@ export default function NavigationGPSScreen() {
 
       // Centrer la carte sur les données importées
       const allPoints = [...routeData.trackPoints, ...routeData.waypoints];
-      if (allPoints.length > 0 && mapRef.current) {
-        mapRef.current.fitToCoordinates(
-          allPoints.map((p) => ({ latitude: p.latitude, longitude: p.longitude })),
-          { edgePadding: { top: 80, right: 80, bottom: 80, left: 80 }, animated: true }
-        );
+      if (allPoints.length > 0) {
+        sendToMap('fitBounds', {
+          coords: allPoints.map((p) => ({ latitude: p.latitude, longitude: p.longitude })),
+        });
       }
 
       Alert.alert(
@@ -382,12 +562,7 @@ export default function NavigationGPSScreen() {
       setPlannedRoute(route);
       setRouteTitle(route.title);
 
-      if (mapRef.current) {
-        mapRef.current.fitToCoordinates(route.coordinates, {
-          edgePadding: { top: 100, right: 60, bottom: 180, left: 60 },
-          animated: true,
-        });
-      }
+      sendToMap('fitBounds', { coords: route.coordinates });
 
       if (route.warnings.length > 0) {
         Alert.alert('Itineraire prepare', route.warnings.join('\n\n'));
@@ -483,32 +658,17 @@ export default function NavigationGPSScreen() {
   };
 
   // ─── Centrage carte ───────────────────────────────────
-  const centerOnUser = () => {
-    if (location && mapRef.current) {
-      mapRef.current.animateToRegion({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
+  const centerOnUser = useCallback(() => {
+    if (location) {
+      sendToMap('centerOn', {
+        lat: location.coords.latitude,
+        lng: location.coords.longitude,
+        zoom: 15,
       });
     }
-  };
+  }, [location, sendToMap]);
 
   // ─── Rendu ────────────────────────────────────────────
-  const initialRegion: Region = location
-    ? {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
-      }
-    : {
-        latitude: 46.603354,
-        longitude: 1.888334,
-        latitudeDelta: 8,
-        longitudeDelta: 8,
-      };
-
   const hasData = trackPoints.length > 0 || waypoints.length > 0 ||
                   importedTrackPoints.length > 0 || importedWaypoints.length > 0 ||
                   (plannedRoute?.coordinates.length ?? 0) > 0;
@@ -634,79 +794,20 @@ export default function NavigationGPSScreen() {
         )}
       </View>
 
-      {/* Carte */}
+      {/* Carte OpenStreetMap via Leaflet */}
       <View style={styles.mapContainer}>
-        <MapView
+        <WebView
           ref={mapRef}
           style={styles.map}
-          initialRegion={initialRegion}
-          showsUserLocation
-          showsMyLocationButton={false}
-          onLongPress={handleMapLongPress}
-        >
-          {/* Trajet enregistré */}
-          {trackPoints.length > 1 && (
-            <Polyline
-              coordinates={trackPoints}
-              strokeColor={COLORS.primary}
-              strokeWidth={4}
-            />
-          )}
-
-          {/* Trajet importé */}
-          {importedTrackPoints.length > 1 && (
-            <Polyline
-              coordinates={importedTrackPoints}
-              strokeColor="#1976D2"
-              strokeWidth={4}
-              lineDashPattern={[10, 5]}
-            />
-          )}
-
-          {plannedRoute && plannedRoute.coordinates.length > 1 && (
-            <Polyline
-              coordinates={plannedRoute.coordinates}
-              strokeColor="#FF8F00"
-              strokeWidth={5}
-            />
-          )}
-
-          {/* Waypoints enregistrés */}
-          {waypoints.map((wp, index) => (
-            <Marker
-              key={`wp-${index}`}
-              coordinate={{ latitude: wp.latitude, longitude: wp.longitude }}
-              title={wp.name}
-              description={wp.timestamp ? `Ajouté: ${new Date(wp.timestamp).toLocaleTimeString('fr-FR')}` : undefined}
-              pinColor={COLORS.primary}
-            />
-          ))}
-
-          {/* Waypoints importés */}
-          {importedWaypoints.map((wp, index) => (
-            <Marker
-              key={`imp-wp-${index}`}
-              coordinate={{ latitude: wp.latitude, longitude: wp.longitude }}
-              title={wp.name}
-              pinColor="#1976D2"
-            />
-          ))}
-
-          {plannedRoute && (
-            <>
-              <Marker
-                coordinate={plannedRoute.start}
-                title={`Depart - ${plannedRoute.departureLabel}`}
-                pinColor="#FF8F00"
-              />
-              <Marker
-                coordinate={plannedRoute.end}
-                title={`Arrivee - ${plannedRoute.arrivalLabel}`}
-                pinColor="#C62828"
-              />
-            </>
-          )}
-        </MapView>
+          source={{ html: LEAFLET_HTML, baseUrl: 'https://carto.com' }}
+          originWhitelist={['*']}
+          javaScriptEnabled
+          domStorageEnabled
+          geolocationEnabled
+          allowsInlineMediaPlayback
+          onLoadEnd={() => setMapReady(true)}
+          onMessage={onMapMessage}
+        />
 
         {/* Bouton recentrer */}
         <TouchableOpacity style={styles.centerButton} onPress={centerOnUser}>
