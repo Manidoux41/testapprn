@@ -1,6 +1,7 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { getPlanDefinition, SUBSCRIPTION_PLANS } from '@/constants/subscription-plans';
-import { SubscriptionPlan, useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/AuthContext';
+import type { SubscriptionPlan } from '@/types/auth';
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -171,7 +172,11 @@ export default function LoginScreen() {
 
           {/* Footer */}
           <View style={styles.footer}>
+            <Text style={styles.footerAppName}>MMC Go Driver</Text>
             <Text style={styles.footerText}>Votre compagnon de route digital</Text>
+            <TouchableOpacity onPress={() => router.push('/conditions-utilisation')}>
+              <Text style={styles.footerCgu}>Conditions d&apos;utilisation</Text>
+            </TouchableOpacity>
           </View>
         </View>
         </ScrollView>
@@ -381,10 +386,24 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 12,
   },
+  footerAppName: {
+    color: '#2D5016',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
   footerText: {
     color: '#6FA474',
-    fontSize: 14,
+    fontSize: 13,
     fontStyle: 'italic',
     fontWeight: '500',
+    marginBottom: 8,
+  },
+  footerCgu: {
+    color: '#388E3C',
+    fontSize: 12,
+    textDecorationLine: 'underline',
+    marginTop: 4,
   },
 });

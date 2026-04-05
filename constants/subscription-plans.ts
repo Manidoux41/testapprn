@@ -1,14 +1,7 @@
-import { SubscriptionPlan } from '@/contexts/AuthContext';
+import type { SubscriptionPlan } from '@/types/auth';
+import type { PlanDefinition } from '@/types/subscription';
 
-export type PlanDefinition = {
-  id: SubscriptionPlan;
-  title: string;
-  shortLabel: string;
-  priceLabel: string;
-  description: string;
-  features: string[];
-  accent: string;
-};
+export type { PlanDefinition } from '@/types/subscription';
 
 export const SUBSCRIPTION_PLANS: PlanDefinition[] = [
   {

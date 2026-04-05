@@ -1,9 +1,12 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import {
-    extractScheduleFromPdfBytes,
-    ScheduleDay,
+import type {
+    AgendaDay,
+    AgendaEntry,
+    CalendarCell,
+    ManualMission,
     ScheduleExtractionResult,
-} from '@/utils/schedule-pdf';
+} from '@/types/schedule';
+import { extractScheduleFromPdfBytes } from '@/utils/schedule-pdf';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { router } from 'expo-router';
@@ -36,36 +39,6 @@ const COLORS = {
 
 const MISSION_COLORS = ['#388E3C', '#1E88E5', '#F9A825', '#8E24AA', '#E53935', '#00897B'];
 
-type AgendaEntry = ScheduleDay['entries'][number] & {
-  missionColor?: string;
-  sourceType: 'import' | 'manual';
-};
-
-interface AgendaDay {
-  date: string;
-  entries: AgendaEntry[];
-  totalServiceMinutes: number;
-  amplitudeMinutes: number;
-}
-
-interface ManualMission {
-  id: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  title: string;
-  origin?: string;
-  destination?: string;
-  missionColor: string;
-}
-
-interface CalendarCell {
-  date: string;
-  dayNumber: number;
-  isCurrentMonth: boolean;
-  isToday: boolean;
-  missionCount: number;
-}
 
 const CALENDAR_WEEKDAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 

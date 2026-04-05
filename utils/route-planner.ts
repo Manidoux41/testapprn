@@ -1,29 +1,7 @@
 import { appEnv, envMessages } from '@/constants/env';
+import type { HeavyRoutePlan, RouteCoordinate, VehicleConstraints } from '@/types/route';
 
-export interface VehicleConstraints {
-  lengthMeters: number;
-  weightTons: number;
-  heightMeters: number;
-}
-
-export interface RouteCoordinate {
-  latitude: number;
-  longitude: number;
-}
-
-export interface HeavyRoutePlan {
-  title: string;
-  departureLabel: string;
-  arrivalLabel: string;
-  coordinates: RouteCoordinate[];
-  distanceKm: number;
-  durationMinutes: number;
-  warnings: string[];
-  provider: 'openrouteservice' | 'fallback';
-  aiSummary: string;
-  start: RouteCoordinate;
-  end: RouteCoordinate;
-}
+export type { HeavyRoutePlan, RouteCoordinate, VehicleConstraints } from '@/types/route';
 
 interface GeocodeResult {
   label: string;

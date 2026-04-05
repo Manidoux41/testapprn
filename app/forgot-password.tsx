@@ -42,7 +42,7 @@ export default function ForgotPasswordScreen() {
           [
             {
               text: 'OK',
-              onPress: () => router.replace('/(tabs)')
+              onPress: () => router.replace('/(auth)')
             }
           ]
         );
@@ -149,7 +149,7 @@ export default function ForgotPasswordScreen() {
             <Text style={styles.footerText}>
               Vous vous souvenez de votre mot de passe ?{' '}
             </Text>
-            <TouchableOpacity onPress={() => router.replace('/(tabs)')}>
+            <TouchableOpacity onPress={() => router.replace('/(auth)')}>
               <Text style={styles.footerLink}>Retour à la connexion</Text>
             </TouchableOpacity>
           </View>

@@ -1,35 +1,8 @@
 import { envMessages } from '@/constants/env';
 import { extractTextWithRemoteOcr, hasRemoteOcrConfigured } from '@/utils/schedule-ocr';
+import type { ScheduleDay, ScheduleEntry, ScheduleExtractionResult } from '@/types/schedule';
 
-export interface ScheduleEntry {
-  id: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  title: string;
-  origin?: string;
-  destination?: string;
-  durationMinutes: number;
-  sourceText: string;
-  confidence: 'high' | 'medium' | 'low';
-}
-
-export interface ScheduleDay {
-  date: string;
-  entries: ScheduleEntry[];
-  totalServiceMinutes: number;
-  amplitudeMinutes: number;
-}
-
-export interface ScheduleExtractionResult {
-  fileName: string;
-  extractedText: string;
-  entries: ScheduleEntry[];
-  days: ScheduleDay[];
-  warnings: string[];
-  extractionMode: 'local' | 'ocr' | 'hybrid';
-  extractionProvider: string;
-}
+export type { ScheduleDay, ScheduleEntry, ScheduleExtractionResult } from '@/types/schedule';
 
 const WEEKDAY_REGEX = /(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)/i;
 const DATE_REGEX = /(\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?)/;

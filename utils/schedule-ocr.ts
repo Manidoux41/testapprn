@@ -1,10 +1,7 @@
 import { appEnv } from '@/constants/env';
+import type { RemoteOcrResult } from '@/types/schedule';
 
-export interface RemoteOcrResult {
-  text: string;
-  provider: 'custom-api' | 'ocr-space';
-  warnings: string[];
-}
+export type { RemoteOcrResult } from '@/types/schedule';
 
 interface CustomOcrApiResponse {
   text?: string;

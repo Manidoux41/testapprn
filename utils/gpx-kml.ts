@@ -1,19 +1,9 @@
 /**
  * Utilitaires pour parser et générer des fichiers GPX et KML
  */
+import type { RouteData, Waypoint } from '@/types/route';
 
-export interface Waypoint {
-  latitude: number;
-  longitude: number;
-  name: string;
-  timestamp?: string;
-}
-
-export interface RouteData {
-  title: string;
-  waypoints: Waypoint[];
-  trackPoints: { latitude: number; longitude: number; timestamp?: string }[];
-}
+export type { RouteData, Waypoint } from '@/types/route';
 
 // ─── GPX ────────────────────────────────────────────────
 

@@ -87,7 +87,8 @@ export default function DashboardScreen() {
       title: 'Incidents',
       description: 'Signaler un problème',
       icon: 'exclamationmark.triangle',
-      color: '#FF6B35'
+      color: '#FF6B35',
+      requiresPlan: 'private' as const
     },
     {
       id: '5',
@@ -156,30 +157,40 @@ export default function DashboardScreen() {
         <View style={styles.toolboxContainer}>
           <Text style={styles.sectionTitle}>Votre boîte à outils</Text>
           <View style={styles.toolGrid}>
-            {toolboxItems.map((tool) => (
-              <TouchableOpacity 
-                key={tool.id} 
-                style={[styles.toolCard, { borderLeftColor: tool.color }]}
-                onPress={() => {
-                  if (tool.id === '6') {
-                    router.push('/navigation-gps');
-                  } else if (tool.id === '7') {
-                    router.push('/emploi-du-temps');
-                  } else {
-                    Alert.alert('Fonctionnalité', `${tool.title} sera bientôt disponible !`);
-                  }
-                }}
-              >
-                <View style={styles.toolIcon}>
-                  <IconSymbol name={tool.icon as any} size={28} color={tool.color} />
-                </View>
-                <View style={styles.toolContent}>
-                  <Text style={styles.toolTitle}>{tool.title}</Text>
-                  <Text style={styles.toolDescription}>{tool.description}</Text>
-                </View>
-                <IconSymbol name="chevron.right" size={16} color="#999" />
-              </TouchableOpacity>
-            ))}
+            {toolboxItems.map((tool) => {
+              const isLocked = (tool.id === '2' || tool.id === '4') && user?.plan === 'free';
+              return (
+                <TouchableOpacity
+                  key={tool.id}
+                  style={[styles.toolCard, { borderLeftColor: isLocked ? '#555' : tool.color }, isLocked && styles.toolCardLocked]}
+                  onPress={() => {
+                    if (tool.id === '1') {
+                      router.push('/controle-pretrajet');
+                    } else if (tool.id === '2') {
+                      router.push('/journal-de-bord');
+                    } else if (tool.id === '4') {
+                      router.push({ pathname: '/journal-de-bord', params: { category: 'incident' } });
+                    } else if (tool.id === '6') {
+                      router.push('/navigation-gps');
+                    } else if (tool.id === '7') {
+                      router.push('/emploi-du-temps');
+                    } else {
+                      Alert.alert('Fonctionnalité', `${tool.title} sera bientôt disponible !`);
+                    }
+                  }}
+                >
+                  <View style={styles.toolIcon}>
+                    <IconSymbol name={tool.icon as any} size={28} color={isLocked ? '#666' : tool.color} />
+                  </View>
+                  <View style={styles.toolContent}>
+                    <Text style={[styles.toolTitle, isLocked && styles.toolTitleLocked]}>{tool.title}</Text>
+                    <Text style={styles.toolDescription}>{tool.description}</Text>
+                    {isLocked && <Text style={styles.lockedBadge}>🔒 Forfait Intermédiaire</Text>}
+                  </View>
+                  <IconSymbol name={isLocked ? 'lock' : 'chevron.right'} size={16} color={isLocked ? '#666' : '#999'} />
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
 
@@ -215,7 +226,7 @@ export default function DashboardScreen() {
 
                 <TouchableOpacity
                   style={[styles.upgradeButton, { backgroundColor: plan.accent }, isLoading && styles.upgradeButtonDisabled]}
-                  onPress={() => handleUpgrade(plan.id)}
+                  onPress={() => handleUpgrade(plan.id as 'private' | 'expert')}
                   disabled={isLoading}
                 >
                   <Text style={styles.upgradeButtonText}>
@@ -403,6 +414,19 @@ const styles = StyleSheet.create({
   toolDescription: {
     fontSize: 14,
     color: '#666',
+  },
+  toolCardLocked: {
+    opacity: 0.55,
+    backgroundColor: '#F5F5F5',
+  },
+  toolTitleLocked: {
+    color: '#999',
+  },
+  lockedBadge: {
+    fontSize: 10,
+    color: '#FFA726',
+    fontWeight: '600',
+    marginTop: 2,
   },
   notificationsContainer: {
     paddingHorizontal: 20,

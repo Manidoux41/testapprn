@@ -1,6 +1,7 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { SUBSCRIPTION_PLANS } from '@/constants/subscription-plans';
-import { SubscriptionPlan, useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/AuthContext';
+import type { SubscriptionPlan } from '@/types/auth';
 import { router } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
